@@ -8,6 +8,12 @@ import requests
 import xml.etree.ElementTree as ET
 from oauth2client.service_account import ServiceAccountCredentials
 
+# Данные для авторизации в google
+spreadsheetId = "1hEs0dRGvC6zd0u6ViS0biKIsghSaekX2feta1kp-TII" #id таблицы
+CREDENTIALS_FILE = "formal-purpose-364109-ca9ad68f591b.json"  # дома
+#Данные для подключения к DB
+conn = psycopg2.connect( host='90.150.172.84', user='postgres', password='1dcd9ed1', dbname='testdb')
+cursor = conn.cursor()
 
 # Читаем ключи из файла
 def autorized(CREDENTIALS_FILE):
