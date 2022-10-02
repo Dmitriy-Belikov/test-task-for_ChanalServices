@@ -1,22 +1,12 @@
 # Подключаем библиотеки
-import datetime
+import time
 import httplib2
 import apiclient.discovery
 import json
 import psycopg2
 import requests
 import xml.etree.ElementTree as ET
-from google.protobuf import service
 from oauth2client.service_account import ServiceAccountCredentials
-from psycopg2 import OperationalError
-from pycbrf.toolbox import ExchangeRates
-from googleapiclient import discovery
-from pprint import pprint
-
-# Данные для авторизации
-spreadsheetId = "1hEs0dRGvC6zd0u6ViS0biKIsghSaekX2feta1kp-TII"
-# CREDENTIALS_FILE = 'formal-purpose-364109-a5b34def6819.json'  # на работе Имя файла с закрытым ключом, вы должны подставить свое
-CREDENTIALS_FILE = "formal-purpose-364109-ca9ad68f591b.json"  # дома
 
 
 # Читаем ключи из файла
@@ -49,7 +39,7 @@ def read_json():
         text = json.load(f)  # загнали все, что получилось в переменную
         # pprint(text) #вывели результат на экран
     return text
-# Конвертация доллара в рубли и запись в соседнюю клетку
+#Получение курса USD из ЦБ
 def usd():
     usd = float(
         ET.fromstring(requests.get('https://www.cbr.ru/scripts/XML_daily.asp').text)
@@ -57,6 +47,7 @@ def usd():
         .text.replace(',', '.')
     )
     return usd
+# Конвертация доллара в рубли и запись в соседнюю клетку
 def usd_to_rub(text, doll):
     new_data = []
     for i in text:
@@ -74,7 +65,7 @@ def ubludok(spreadsheetId):
         p += 1
 
         f = 'Лист1!A' + str(i) + ':E' + str(i)
-        results = a.spreadsheets().values().batchUpdate(spreadsheetId=spreadsheetId, body={
+        results = autorized(CREDENTIALS_FILE).spreadsheets().values().batchUpdate(spreadsheetId=spreadsheetId, body={
             "valueInputOption": "RAW",  # Запись "как есть"
             "data": [
                 {"range": f, "values": [
@@ -83,49 +74,43 @@ def ubludok(spreadsheetId):
             ]
         }).execute()
         print(f'строка {x[0]} обновлена')
-def write(a,json_read):
+#Запись новых данных в Таблицу google
+def write(a,json_read): #(данные авторизации из autorized, данные из файла json read_json)
     results = a.spreadsheets().values().batchUpdate(spreadsheetId=spreadsheetId, body={
         "valueInputOption": "RAW",  # Запись "как есть"
         "data": [
             {"range": 'Лист1!A2:E1000', "values": json_read}
         ]
     }).execute()
-'''a = autorized(CREDENTIALS_FILE)  # Авторизация
-b = read_tab(a, spreadsheetId) #Чтение таблицы
-c = write_json(b) #Запись в JSON
-d = read_json() #Чтение JSON
-e = usd_to_rub(d, usd()) #Конвертация usd в rub и запись в соседнюю ячейку
-f = write_json(e) #Запись новых данных в JSON
-g = read_json() #Чтение JSON
-write(a, g) #Запись новых данных в Таблицу google
-print('Задача выполнена, данные обновлены')'''
-conn = psycopg2.connect( )
-cursor = conn.cursor()
+# Выводим данные из SQL таблицы
 def sql_read(cursor):
     # Делаем SELECT запрос к базе данных, используя обычный SQL-синтаксис
     cursor.execute("SELECT * FROM test")
     # Получаем результат сделанного запроса
     results = cursor.fetchall()
-    print(results)
-def sql_write(cursor):
-    # Делаем SELECT запрос к базе данных, используя обычный SQL-синтаксис
-    cursor.execute("INSERT INTO test VALUES (1, 1249708, 675, 'ggg', 37326.62);")
-    conn.commit()
+    return results
+# Запись в SQL DB
+def sql_write(cursor, text):
+    '''with open('data.txt', 'r', encoding='utf-8') as f:  # открыли файл с данными
+        text = json.load(f)  # загнали все, что получилось в переменную'''
+    for i in text:
+        # Делаем SELECT запрос к базе данных, используя обычный SQL-синтаксис
+        cursor.execute(f"""INSERT INTO test VALUES ({i[0]}, {i[1]}, {i[2]}, {"'" + i[3] + "'"}, {i[4]});""")
+        conn.commit()
+    print('Данные из JSON записаны в Базу данных')
+# Очистка таблицы SQL
 def sql_del(cursor):
     # Делаем SELECT запрос к базе данных, используя обычный SQL-синтаксис
     cursor.execute("DELETE FROM test;")
     conn.commit()
-def sql_write_tets(cursor):
-    with open('data.txt', 'r', encoding='utf-8') as f:  # открыли файл с данными
-        text = json.load(f)  # загнали все, что получилось в переменную
-    for i in text:
-        # Делаем SELECT запрос к базе данных, используя обычный SQL-синтаксис
-        cursor.execute(f"INSERT INTO test VALUES ({i[0]}, {i[1]}, {i[2]}, {i[3]}, {i[4]});")
-        conn.commit()
-sql_write_tets(cursor)
-sql_read(cursor)
+    print('Таблица очищена')
 
-
-'''sql_del(cursor)
-sql_write(cursor)
-sql_read(cursor)'''
+while True:
+    write_json(read_tab(autorized(CREDENTIALS_FILE), spreadsheetId)) #Запись в JSON
+    e = usd_to_rub(read_json(), usd()) #Конвертация usd в rub и запись в соседнюю ячейку
+    write_json(e) #Запись новых данных в JSON
+    sql_del(cursor) #очистка DB
+    sql_write(cursor, read_json()) #запись в DB
+    write(autorized(CREDENTIALS_FILE), sql_read(cursor)) #Запись новых данных в Таблицу google
+    print('Задача выполнена, данные обновлены')
+    time.sleep(0.3) #Пауза для соблюдения кол-ва запросов в минуту (300)
